@@ -1,47 +1,78 @@
 package com.academico.application;
 
+import com.academico.domain.exception.DominioException;
 import com.academico.domain.model.Curso;
 import com.academico.domain.repository.CursoRepository;
+import com.academico.domain.repository.MatriculaRepository;
 
 import java.util.List;
 
 public class CursoService {
 
     private final CursoRepository repository;
+    private final MatriculaRepository matriculas;
 
-    public CursoService(CursoRepository repository) {
+    public CursoService(CursoRepository repository, MatriculaRepository matriculas) {
         this.repository = repository;
+        this.matriculas = matriculas;
     }
 
-    public void registrar(Curso curso) {
-        List<Curso> cursos = repository.listar();
-        cursos.add(curso);
-        repository.guardar(cursos);
+    public Curso registrar(String nombre, int creditos) {
+        List<Curso> todos = repository.listar();
+        Curso nuevo = new Curso(GeneradorId.siguiente(todos), nombre, creditos);
+        validarNombreLibre(todos, nuevo);
+        todos.add(nuevo);
+        repository.guardar(todos);
+        return nuevo;
     }
 
     public List<Curso> listar() {
         return repository.listar();
     }
 
-    public boolean actualizar(Curso curso) {
-        List<Curso> cursos = repository.listar();
-        for (Curso c : cursos) {
-            if (c.getId() == curso.getId()) {
-                c.setNombre(curso.getNombre());
-                c.setCreditos(curso.getCreditos());
-                repository.guardar(cursos);
-                return true;
-            }
-        }
-        return false;
+    public Curso obtener(int id) {
+        return repository.listar().stream()
+                .filter(c -> c.getId() == id)
+                .findFirst()
+                .orElseThrow(() -> new DominioException("No existe un curso con ID " + id + "."));
     }
 
-    public boolean eliminar(int id) {
-        List<Curso> cursos = repository.listar();
-        boolean eliminado = cursos.removeIf(c -> c.getId() == id);
-        if (eliminado) {
-            repository.guardar(cursos);
+    public Curso actualizar(int id, String nombre, int creditos) {
+        List<Curso> todos = repository.listar();
+        int posicion = posicionDe(todos, id);
+        Curso actualizado = new Curso(id, nombre, creditos);
+        validarNombreLibre(todos, actualizado);
+        todos.set(posicion, actualizado);
+        repository.guardar(todos);
+        return actualizado;
+    }
+
+    public void eliminar(int id) {
+        boolean tieneAlumnos = matriculas.listar().stream()
+                .anyMatch(m -> m.getCursoId() == id);
+        if (tieneAlumnos) {
+            throw new DominioException("No se puede eliminar: el curso tiene estudiantes matriculados.");
         }
-        return eliminado;
+        List<Curso> todos = repository.listar();
+        todos.remove(posicionDe(todos, id));
+        repository.guardar(todos);
+    }
+
+    private int posicionDe(List<Curso> lista, int id) {
+        for (int i = 0; i < lista.size(); i++) {
+            if (lista.get(i).getId() == id) {
+                return i;
+            }
+        }
+        throw new DominioException("No existe un curso con ID " + id + ".");
+    }
+
+    private void validarNombreLibre(List<Curso> existentes, Curso candidato) {
+        boolean repetido = existentes.stream().anyMatch(c ->
+                c.getId() != candidato.getId()
+                        && c.getNombre().equalsIgnoreCase(candidato.getNombre()));
+        if (repetido) {
+            throw new DominioException("Ya existe un curso llamado \"" + candidato.getNombre() + "\".");
+        }
     }
 }
